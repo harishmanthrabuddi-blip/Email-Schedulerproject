@@ -67,6 +67,15 @@ export const LoginPage: React.FC<LoginPageProps> = ({ errorMessage }) => {
             </svg>
             <span>Continue with Google</span>
           </button>
+
+          <button
+            onClick={() => {
+              window.location.href = `${backendUrl}/api/auth/dev-login`;
+            }}
+            className="w-full flex items-center justify-center gap-2 bg-slate-800/80 hover:bg-slate-800 border border-slate-700/60 text-slate-200 font-medium py-3 px-6 rounded-xl transition duration-200 cursor-pointer text-sm"
+          >
+            <span>🚀 Quick Demo Sign-In (Instant Access)</span>
+          </button>
         </div>
 
         <div className="border-t border-slate-800 pt-6 text-center text-xs text-slate-500">

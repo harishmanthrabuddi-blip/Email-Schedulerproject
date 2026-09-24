@@ -7,8 +7,8 @@ const router = Router();
 // GET /api/auth/dev-login -> Local development shortcut when Google OAuth keys are unconfigured
 router.get('/dev-login', async (req: Request, res: Response): Promise<void> => {
   try {
-    const [rows]: any = await pool.query('SELECT * FROM users WHERE id = 1 LIMIT 1');
-    const devUser = rows[0] || { id: 1, google_id: null, name: 'Development User', email: 'dev@example.com' };
+    const result = await pool.query('SELECT * FROM users WHERE id = 1 LIMIT 1');
+    const devUser = result.rows[0] || { id: 1, google_id: null, name: 'Development User', email: 'dev@example.com' };
 
     req.logIn(devUser, (err) => {
       if (err) {
