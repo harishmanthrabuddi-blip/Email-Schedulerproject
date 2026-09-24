@@ -34,3 +34,7 @@ export const redisClient = redisUrl
       maxRetriesPerRequest: null,
       lazyConnect: true,
     });
+
+redisClient.on('error', (err) => {
+  console.warn('[Redis Connection Warning]', err?.message || err);
+});
