@@ -1,10 +1,10 @@
-# Email Scheduler Application — Full Stack Production System
+# Email Scheduler Application — Production System
 
 A production-grade, distributed automated Email Scheduling platform built with **TypeScript**, **Express.js**, **MySQL**, **Redis**, **BullMQ**, **Nodemailer (Ethereal SMTP)**, **Elasticsearch**, **Google OAuth 2.0**, **Slack OAuth 2.0**, and **React (Vite)**.
 
 ---
 
-## 1. System Architecture & Component Diagram
+## 1. System Architecture Overview
 
 ```mermaid
 flowchart TD
@@ -16,22 +16,25 @@ flowchart TD
     end
 
     subgraph Persistence & Queueing
-        Express -->|Save Email Record| MySQL[("MySQL Database (Truth)")]
+        Express -->|Save Email Record| MySQL[("MySQL Database (Source of Truth)")]
         Express -->|Add Delayed Job| BullMQ["BullMQ Queue (email-scheduler)"]
         BullMQ <-->|Queue Storage| RedisQueue[("Redis Store")]
+        Express -->|Startup Reconciliation| Recovery["Recovery Service (emailRecoveryService.ts)"]
+        Recovery <-->|Query Scheduled Emails| MySQL
+        Recovery <-->|Re-enqueue Missing Jobs| BullMQ
     end
 
     subgraph Worker & Delivery
         Worker["BullMQ Worker (emailWorker.ts)"] -->|Fetch Job| BullMQ
         Worker -->|Atomic Slot Check| RateLimit["Redis Hourly Rate Limiter"]
-        Worker -->|Atomic Delay Reservation| SendDelay["Redis Global Send Delay"]
+        Worker -->|Atomic Delay Reservation| SendDelay["Redis Minimum Send Delay"]
         Worker -->|SMTP Delivery| Ethereal["Ethereal Email SMTP"]
         Worker -->|Update Status & Sent At| MySQL
         Worker -->|Index Document| ES[("Elasticsearch Search Index")]
     end
 
     subgraph Slack Alerts
-        Worker -->|Rate Limit Exceeded Alert| Slack["Slack API (WebClient)"]
+        Worker -->|Rate Limit Exceeded Alert| Slack["Slack API (#email-alerts)"]
         Slack -->|Deduplication Lock| RedisSlack["Redis 1-Hour Lock (SET NX EX 3600)"]
     end
 
@@ -41,63 +44,49 @@ flowchart TD
     end
 ```
 
----
+### Core Architecture Components
 
-## 2. Key System Features
+#### A. How Email Scheduling Works
+1. **User Scheduling Request**: The user submits a scheduled email via the React frontend or `POST /api/emails/schedule`.
+2. **Database Record Creation**: An email record is created in MySQL with `status = 'scheduled'`, saving the recipient, subject, body, sender identity, and `scheduled_at` timestamp. Idempotency is enforced using a unique `idempotency_key`.
+3. **BullMQ Delayed Enqueueing**: A BullMQ delayed job is created with a deterministic job ID (`email-${emailId}`) and a calculated delay `delay = Math.max(0, scheduledAt - Date.now())`.
+4. **Database Cross-Reference**: The generated BullMQ job ID is saved in MySQL `queue_job_id`.
 
-1. **Google OAuth 2.0 & Redis Sessions**:
-   - Authenticates users with official Google OAuth 2.0 (`passport-google-oauth20`).
-   - Server-side Express sessions (`express-session`) stored directly in Redis (`connect-redis`).
-   - HTTP-only browser session cookies (`connect.sid`). Zero JWT, zero `localStorage` auth tokens, zero URL tokens.
+#### B. How Persistence & Recovery on Server Restart is Handled
+1. **Source of Truth**: The MySQL database serves as the absolute source of truth for all scheduled emails.
+2. **Startup Reconciliation Service (`emailRecoveryService.ts`)**:
+   - On backend application or worker startup, the recovery service runs **before** worker processing begins.
+   - It queries MySQL for all emails where `status = 'scheduled'` (and resets any emails stuck in `processing` due to an unexpected crash back to `scheduled`).
+   - For every pending email:
+     - It checks whether its corresponding BullMQ job exists in Redis (`emailQueue.getJob('email-' + email.id)`).
+     - **Job Exists**: If the job is active, waiting, or delayed in BullMQ, recovery skips it (preventing duplicate enqueuing).
+     - **Job Missing**: If Redis was restarted or flushed, recovery recreates the delayed job in BullMQ using the original `scheduled_at` timestamp.
+     - **Overdue Emails**: If `scheduled_at` passed while the backend was offline, `delay` is set to `0`, causing BullMQ to process and send the email immediately upon startup.
 
-2. **Persistent Email Scheduling & BullMQ Queueing**:
-   - MySQL database serves as the absolute source of truth for email records.
-   - BullMQ persistent delayed jobs manage scheduled email execution across system restarts and worker crashes.
-
-3. **Multiple Senders Identity Support**:
-   - Authenticated users configure multiple outgoing sender identities (`"Sender Name" <sender@example.com>`).
-   - Enforces composite unique constraint `(user_id, email)`. Senders are strictly scoped by user ownership (`WHERE user_id = ?`).
-   - Deleting a sender sets `emails.sender_id = NULL` (`ON DELETE SET NULL`) preserving all historical email logs and search indices.
-
-4. **Configurable Hourly Rate Limiting**:
-   - Distributed hourly rate limit (`EMAILS_PER_HOUR`) using Redis atomic counters.
-   - When hourly quota is consumed, remaining jobs are automatically delayed/rescheduled to the next UTC hour without dropping emails or marking them as failed.
-
-5. **Global Minimum Send Delay**:
-   - Configurable minimum delay (`MIN_SEND_DELAY_MS`) between individual email sends.
-   - Coordinated atomically across multiple worker threads using Redis key timestamps (`email-send-delay:next`).
-
-6. **Full-Text Elasticsearch Search**:
-   - Indices delivered and scheduled emails in Elasticsearch (`emails` index).
-   - Fast full-text search by recipient, subject, and body with status filtering and bulk reindexing endpoints.
-   - Graceful degradation: If Elasticsearch fails or is offline, email scheduling and SMTP sending continue without downtime.
-
-7. **Slack OAuth 2.0 & Hourly Rate Limit Notifications**:
-   - Authenticated users connect Slack workspaces via standard OAuth 2.0 authorization code grant.
-   - Stores encrypted tokens server-side in MySQL `slack_connections` table.
-   - Automated rate-limit notifications sent to user's selected Slack channel when hourly limit is reached.
-   - Redis 1-hour deduplication lock (`slack-rate-limit-notified:<userId>:<UTC-hour>`) guarantees at most one Slack message per hour.
-
-8. **Live BullMQ Monitoring Dashboard (`/queue`)**:
-   - Real-time queue metrics: Waiting, Active, Delayed, Completed, Failed counts.
-   - Infrastructure status: Redis ping, Queue health, Worker concurrency.
-   - Paginated user-scoped jobs table with status filter tabs (`Waiting`, `Active`, `Delayed`, `Completed`, `Failed`).
-   - Job detail drawer showing safe metadata and failure reasons.
-   - **Server-Sent Events (SSE)**: Stream live updates (`/api/queue/events`) directly from BullMQ `QueueEvents`. **Zero polling timers, zero `setInterval`/`setTimeout`, zero cron jobs.**
+#### C. How Rate Limiting & Concurrency are Implemented
+1. **Configurable Hourly Rate Limiting**:
+   - Configured via `EMAILS_PER_HOUR` in `.env` (default: 10 emails/hour).
+   - Enforced atomically using a Redis Lua script (`email-rate-limit:YYYY-MM-DD-HH`).
+   - When hourly quota is consumed, remaining jobs are automatically delayed/rescheduled to the next UTC hour window (`moveToDelayed`) without dropping emails or failing jobs.
+2. **Atomic Minimum Send Delay**:
+   - Configured via `MIN_SEND_DELAY_MS` in `.env` (default: 2000ms).
+   - Coordinates email execution across concurrent worker threads using Redis atomic timestamp keys (`email-send-delay:next`).
+3. **Worker Concurrency**:
+   - Configured via `WORKER_CONCURRENCY` in `.env` (default: 5 concurrent jobs).
+   - Managed directly by BullMQ worker instances consuming jobs from the Redis queue.
 
 ---
 
-## 3. Technology Stack
+## 2. Environment Variables & Ethereal SMTP Setup
 
-- **Backend**: Node.js, TypeScript, Express.js, Passport.js, BullMQ, ioredis, mysql2, Nodemailer, @elastic/elasticsearch, @slack/web-api.
-- **Frontend**: React 18, TypeScript, Vite, React Router DOM, Modern CSS (Tailwind).
-- **Databases & Middleware**: MySQL 8.0, Redis / Memurai, Elasticsearch 8.x.
+### Setting up Ethereal Email SMTP Credentials
+1. Go to [https://ethereal.email](https://ethereal.email) in your web browser.
+2. Click **Create Ethereal Account**.
+3. Copy your generated `Account / Username` and `Password`.
+4. Paste these values into your `backend/.env` file under `ETHEREAL_USER` and `ETHEREAL_PASSWORD`.
 
----
-
-## 4. Environment Variables Reference
-
-Copy `backend/.env.example` to `backend/.env`:
+### Backend Environment Configuration (`backend/.env`)
+Create `backend/.env` with the following variables:
 
 ```env
 PORT=5000
@@ -105,7 +94,7 @@ DB_HOST=localhost
 DB_PORT=3306
 DB_NAME=email_scheduler
 DB_USER=root
-DB_PASSWORD=
+DB_PASSWORD=your_mysql_password
 
 REDIS_HOST=127.0.0.1
 REDIS_PORT=6379
@@ -114,32 +103,33 @@ WORKER_CONCURRENCY=5
 EMAILS_PER_HOUR=10
 MIN_SEND_DELAY_MS=2000
 
-# Ethereal Email SMTP Configuration
+# Ethereal Email Configuration
 ETHEREAL_HOST=smtp.ethereal.email
 ETHEREAL_PORT=587
-ETHEREAL_USER=your_ethereal_username
+ETHEREAL_USER=your_ethereal_username@ethereal.email
 ETHEREAL_PASSWORD=your_ethereal_password
-ETHEREAL_FROM="Email Scheduler <your_ethereal_username>"
+ETHEREAL_FROM="Email Scheduler <your_ethereal_username@ethereal.email>"
 
-# Elasticsearch Configuration
+# Elasticsearch Configuration (Optional)
 ELASTICSEARCH_NODE=http://localhost:9200
 ELASTICSEARCH_INDEX=emails
 
 # Google OAuth Configuration
-GOOGLE_CLIENT_ID=your_google_client_id_here
-GOOGLE_CLIENT_SECRET=your_google_client_secret_here
+GOOGLE_CLIENT_ID=your_google_client_id
+GOOGLE_CLIENT_SECRET=your_google_client_secret
 GOOGLE_CALLBACK_URL=http://localhost:5000/api/auth/google/callback
 SESSION_SECRET=super_secret_session_key_change_in_production
-FRONTEND_URL=http://localhost:5173
+FRONTEND_URL=http://localhost:3000
 
 # Slack OAuth Configuration
-SLACK_CLIENT_ID=your_slack_client_id_here
-SLACK_CLIENT_SECRET=your_slack_client_secret_here
+SLACK_CLIENT_ID=your_slack_client_id
+SLACK_CLIENT_SECRET=your_slack_client_secret
 SLACK_REDIRECT_URI=http://localhost:5000/api/slack/callback
-SLACK_SCOPES=chat:write,channels:read
+SLACK_SCOPES=chat:write,channels:read,groups:read
 ```
 
-Copy `frontend/.env.example` to `frontend/.env`:
+### Frontend Environment Configuration (`frontend/.env`)
+Create `frontend/.env` with:
 
 ```env
 VITE_API_URL=http://localhost:5000
@@ -147,97 +137,77 @@ VITE_API_URL=http://localhost:5000
 
 ---
 
-## 5. Prerequisites & Local Setup
+## 3. Local Setup & How to Run
 
 ### System Prerequisites
-1. Node.js (v18 or higher) & npm
-2. MySQL Database Server (Running on port 3306 with database `email_scheduler`)
-3. Redis Server / Memurai (Running on port 6379)
-4. Elasticsearch Server (Optional, default `http://localhost:9200`)
+1. **Node.js** (v18 or higher) & **npm**
+2. **MySQL Database Server** (Running on port 3306 with database `email_scheduler`)
+3. **Redis Server / Memurai** (Running on port 6379)
 
-### Backend Installation & Startup
+---
+
+### Step 1: Start Backend API & Worker
 ```bash
 cd backend
 npm install
 npm run build
 npm run dev
 ```
+*(The backend server automatically initializes MySQL tables, runs scheduled email recovery reconciliation, and starts the BullMQ worker on startup.)*
 
-### Standalone BullMQ Worker Startup (Separate Terminal)
+To run a standalone worker in a separate terminal:
 ```bash
 cd backend
 npm run worker
 ```
 
-### Frontend Installation & Startup
+---
+
+### Step 2: Start Frontend Application
+In a separate terminal:
 ```bash
 cd frontend
 npm install
 npm run build
 npm run dev
 ```
-Open `http://localhost:5173` in your web browser.
+Open **[http://localhost:3000](http://localhost:3000)** in your browser.
 
 ---
 
-## 6. API Reference Overview
+## 4. List of Implemented Features
 
-### Health Endpoints
-- `GET /health`: Express API status.
-- `GET /health/db`: MySQL database status.
-- `GET /health/redis`: Redis connection status.
-- `GET /health/elasticsearch`: Elasticsearch reachability status.
+### Backend Features
+- **Idempotent Scheduler**: Schedules email jobs with duplicate protection and persistent delayed BullMQ queues.
+- **Restart Reconciliation & Persistence**: `emailRecoveryService.ts` restores missing jobs and enqueues overdue emails automatically across server/Redis restarts.
+- **Distributed Hourly Rate Limiting**: Redis Lua script limits outgoing emails per hour and reschedules excess jobs cleanly.
+- **Atomic Minimum Send Delay**: Enforces spacing between individual email dispatches across concurrent worker threads.
+- **Worker Concurrency**: Configurable BullMQ worker executing up to `WORKER_CONCURRENCY` jobs in parallel.
+- **Ethereal SMTP Integration**: Delivers real test emails and logs Ethereal preview URLs for verification.
+- **Multiple Outgoing Senders**: Supports user-scoped sender identities with `ON DELETE SET NULL` database foreign key safety.
+- **Slack OAuth & `#email-alerts` Channel Support**: Authenticates Slack workspaces, lists channels via Slack API, supports selecting `#email-alerts`, and sends rate-limit alerts.
+- **Elasticsearch Search Index**: Real-time full-text email search with graceful degradation fallback.
+- **Google OAuth 2.0 & Redis Session Store**: Secure authentication using HTTP-only session cookies (`connect.sid`).
+- **Server-Sent Events (SSE)**: Streams live BullMQ queue updates (`/api/queue/events`) without polling timers.
 
-### Authentication Endpoints
-- `GET /api/auth/google`: Initiates Google OAuth consent flow.
-- `GET /api/auth/google/callback`: OAuth callback, creates/fetches MySQL user, initializes Redis session cookie.
-- `GET /api/auth/me`: Returns current authenticated user profile (`{ authenticated: true, user }`).
-- `POST /api/auth/logout`: Destroys Redis session and clears HTTP-only cookie.
-
-### Sender Accounts Endpoints (Requires Auth)
-- `GET /api/senders`: Returns user's sender identities.
-- `POST /api/senders`: Creates new sender (`{ email, name }`).
-- `GET /api/senders/:id`: Gets single sender owned by user.
-- `PUT /api/senders/:id`: Updates sender details.
-- `DELETE /api/senders/:id`: Deletes sender (email `sender_id` becomes `NULL`).
-
-### Email Campaign & Search Endpoints (Requires Auth)
-- `POST /api/emails/schedule`: Schedules an email job with idempotency protection.
-- `GET /api/emails/scheduled`: Returns scheduled email queue for user.
-- `GET /api/emails/:id`: Returns single email details.
-- `GET /api/emails/search?q=...&status=...&page=...&limit=...`: Full-text Elasticsearch search.
-- `POST /api/emails/search/reindex`: Reindexes user emails into Elasticsearch.
-
-### Slack Integration Endpoints (Requires Auth)
-- `GET /api/slack/connect`: Initiates Slack OAuth flow with CSRF state generation.
-- `GET /api/slack/callback`: Handles callback and saves Slack token in MySQL.
-- `GET /api/slack/status`: Returns `{ connected: boolean, teamId, channelId }`.
-- `GET /api/slack/channels`: Lists accessible Slack channels.
-- `POST /api/slack/channel`: Body `{ channelId }`. Sets alert channel.
-- `POST /api/slack/disconnect`: Removes Slack connection.
-
-### BullMQ Live Dashboard Endpoints (Requires Auth)
-- `GET /api/queue/stats`: Returns global queue counts and user job statistics.
-- `GET /api/queue/jobs?status=...&page=...&limit=...`: Returns paginated user jobs.
-- `GET /api/queue/jobs/:jobId`: Returns safe metadata for single job or 404.
-- `GET /api/queue/health`: Infrastructure health overview.
-- `GET /api/queue/events`: Authenticated Server-Sent Events (SSE) live stream.
+### Frontend Features
+- **Google OAuth Login Interface**: Clean sign-in page with session cookie management.
+- **Dashboard Overview**: Metrics overview cards for Scheduled, Sent, and Failed emails.
+- **System Infrastructure Health Cards**: Live connectivity indicators for Express API, MySQL, Redis, and Elasticsearch.
+- **Compose Email Campaign Modal**: Form with recipient parsing, custom sender identity selection, subject, body, and datetime picker.
+- **Scheduled Emails Table View**: Real-time table displaying pending campaigns with status indicators.
+- **Sent Emails Search & Pagination View**: Full-text search interface filtering sent and failed email history.
+- **Live BullMQ Queue Monitor (`/queue`)**: Interactive monitoring dashboard showing job counts (`Waiting`, `Active`, `Delayed`, `Completed`, `Failed`), job detail drawer, and live SSE updates.
+- **Slack Settings & Channel Selector**: Connects Slack workspaces, presents accessible channel dropdown (with explicit error handling if `#email-alerts` requires app invitation), and displays `Notification Channel: #email-alerts`.
+- **Sender Manager**: Interface to add, update, and remove outgoing sender email addresses.
 
 ---
 
-## 7. Automated Test Suite Execution
+## 5. Collaborator Access
 
-Run the complete automated end-to-end integration test suite:
-
-```bash
-node scratch/test_final_integration.js
-```
-
-Runs comprehensive tests for health, database schema, user isolation, scheduling idempotency, rate limiting, Elasticsearch search, Slack notification deduplication, and BullMQ live queue monitoring.
-
----
-
-## 8. License & Project Status
-
-- **Status**: Production Ready & GitHub Submission Ready
-- **Build Status**: Backend (`0 errors`), Frontend (`0 errors`).
+To grant repository access to **`Mitrajit`** and **`Yadav036`**:
+1. Go to the GitHub repository: **[https://github.com/harishmanthrabuddi-blip/Email-Schedulerproject](https://github.com/harishmanthrabuddi-blip/Email-Schedulerproject)**
+2. Click **Settings** $\rightarrow$ **Collaborators**.
+3. Click **Add people** and invite:
+   - `Mitrajit`
+   - `Yadav036`
