@@ -14,7 +14,7 @@ router.use(requireAuth);
 // POST /api/emails/schedule
 router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const { recipient, subject, body, scheduledAt, idempotencyKey, senderId: rawSenderId } = req.body;
 
     // 1. Validation
@@ -85,7 +85,7 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
     const existingEmail = await emailRepository.findEmailByIdempotencyKey(idempotencyKey);
     if (existingEmail) {
       // User isolation check on idempotency match
-      if (existingEmail.user_id !== userId) {
+      if (Number(existingEmail.user_id) !== Number(userId)) {
         res.status(400).json({ error: 'idempotencyKey is already used by another account' });
         return;
       }
@@ -167,7 +167,7 @@ router.post('/schedule', async (req: Request, res: Response): Promise<void> => {
 // GET /api/emails/scheduled
 router.get('/scheduled', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const scheduledEmails = await emailRepository.getScheduledEmailsByUserId(userId);
 
     const formattedEmails = scheduledEmails.map((email) => ({
@@ -190,7 +190,7 @@ router.get('/scheduled', async (req: Request, res: Response): Promise<void> => {
 // GET /api/emails/search
 router.get('/search', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const q = req.query.q as string | undefined;
     const status = req.query.status as string | undefined;
     const page = req.query.page ? parseInt(String(req.query.page), 10) : 1;
@@ -221,7 +221,7 @@ router.get('/search', async (req: Request, res: Response): Promise<void> => {
 // POST /api/emails/search/reindex
 router.post('/search/reindex', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const result = await emailSearchService.reindexAllUserEmails(userId);
 
     if (!result.reachable) {
@@ -242,7 +242,7 @@ router.post('/search/reindex', async (req: Request, res: Response): Promise<void
 // GET /api/emails/:id
 router.get('/:id', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const rawId = req.params.id;
     const idStr = Array.isArray(rawId) ? rawId[0] : String(rawId);
     const id = parseInt(idStr, 10);
@@ -253,7 +253,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     }
 
     const email = await emailRepository.findEmailById(id);
-    if (!email || email.user_id !== userId) {
+    if (!email || Number(email.user_id) !== Number(userId)) {
       res.status(404).json({ error: 'Email not found' });
       return;
     }
@@ -268,7 +268,7 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
 // POST /api/emails/:id/send-now - Instantly dispatch any scheduled email
 router.post('/:id/send-now', async (req: Request, res: Response): Promise<void> => {
   try {
-    const userId = (req.user as any).id;
+    const userId = Number((req.user as any).id);
     const rawId = req.params.id;
     const idStr = Array.isArray(rawId) ? rawId[0] : String(rawId);
     const id = parseInt(idStr, 10);
@@ -279,7 +279,7 @@ router.post('/:id/send-now', async (req: Request, res: Response): Promise<void> 
     }
 
     const email = await emailRepository.findEmailById(id);
-    if (!email || email.user_id !== userId) {
+    if (!email || Number(email.user_id) !== Number(userId)) {
       res.status(404).json({ error: 'Email not found' });
       return;
     }
