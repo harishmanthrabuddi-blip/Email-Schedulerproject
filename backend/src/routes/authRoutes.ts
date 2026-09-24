@@ -13,14 +13,14 @@ router.get('/dev-login', async (req: Request, res: Response): Promise<void> => {
     req.logIn(devUser, (err) => {
       if (err) {
         console.error('Dev login session error:', err);
-        res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent('Dev login failed')}`);
+        res.redirect('/?error=' + encodeURIComponent('Dev login failed'));
         return;
       }
-      res.redirect(`${FRONTEND_URL}/`);
+      res.redirect('/');
     });
   } catch (error) {
     console.error('Dev login error:', error);
-    res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent('Dev login failed')}`);
+    res.redirect('/?error=' + encodeURIComponent('Dev login failed'));
   }
 });
 
@@ -50,26 +50,26 @@ router.get(
     passport.authenticate('google', (err: any, user: any, info: any) => {
       if (err) {
         console.error('Passport Google auth callback error:', err);
-        res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(err.message || 'Authentication error')}`);
+        res.redirect('/?error=' + encodeURIComponent(err.message || 'Authentication error'));
         return;
       }
 
       if (!user) {
         const msg = info?.message || 'Authentication failed';
         console.error('Passport Google auth failed:', msg);
-        res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent(msg)}`);
+        res.redirect('/?error=' + encodeURIComponent(msg));
         return;
       }
 
       req.logIn(user, (loginErr) => {
         if (loginErr) {
           console.error('Error logging in user into Passport session:', loginErr);
-          res.redirect(`${FRONTEND_URL}/login?error=${encodeURIComponent('Session error')}`);
+          res.redirect('/?error=' + encodeURIComponent('Session error'));
           return;
         }
 
         // Successfully authenticated! Session stored in Redis, cookie set.
-        res.redirect(`${FRONTEND_URL}/`);
+        res.redirect('/');
       });
     })(req, res, next);
   }

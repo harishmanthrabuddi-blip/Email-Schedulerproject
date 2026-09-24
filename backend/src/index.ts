@@ -29,12 +29,15 @@ if (!process.env.SESSION_SECRET) {
 
 const app = express();
 const PORT = process.env.PORT || 5000;
-const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
+const FRONTEND_URL = process.env.FRONTEND_URL;
+
+// Enable reverse proxy trust for secure cookies on Render
+app.set('trust proxy', 1);
 
 // 1. CORS Configuration (credentials required for session cookies)
 app.use(
   cors({
-    origin: FRONTEND_URL,
+    origin: FRONTEND_URL || true,
     credentials: true,
   })
 );
