@@ -95,7 +95,27 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/rate-limit', rateLimitRoutes);
 app.use('/api/send-delay', sendDelayRoutes);
 
-// Public Health Endpoints
+// Root & Public Health Endpoints
+app.get('/', (req: Request, res: Response) => {
+  res.json({
+    message: 'Email Scheduler API is running smoothly 🚀',
+    status: 'online',
+    version: '1.0.0',
+    endpoints: {
+      health: '/health',
+      dbHealth: '/health/db',
+      redisHealth: '/health/redis',
+      auth: '/api/auth',
+      emails: '/api/emails',
+      queue: '/api/queue',
+      senders: '/api/senders',
+      slack: '/api/slack',
+      rateLimit: '/api/rate-limit',
+      sendDelay: '/api/send-delay',
+    },
+  });
+});
+
 app.get('/health', (req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
