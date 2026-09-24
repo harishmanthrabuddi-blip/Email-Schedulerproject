@@ -1,0 +1,10 @@
+{
+  "name": "email-scheduler-root",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Root package for Email Scheduler monorepo",
+  "scripts": {
+    "build": "cd backend && npm install && npm run build",
+    "start": "cd backend && npm start"
+  }
+}
