@@ -12,10 +12,13 @@ export const ComposeEmail: React.FC<ComposeEmailProps> = ({ addToast, onSchedule
   const navigate = useNavigate();
 
   // Helper to format ISO date string for datetime-local input
-  const getDefaultScheduledTime = () => {
-    const date = new Date(Date.now() + 5 * 60 * 1000); // Now + 5 minutes
+  const formatDateTimeLocal = (date: Date) => {
     const localDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-    return localDate.toISOString().slice(0, 16);
+    return localDate.toISOString().slice(0, 19);
+  };
+
+  const getDefaultScheduledTime = () => {
+    return formatDateTimeLocal(new Date(Date.now() + 15 * 1000)); // Now + 15 seconds
   };
 
   const [senders, setSenders] = useState<Sender[]>([]);
@@ -388,11 +391,40 @@ export const ComposeEmail: React.FC<ComposeEmailProps> = ({ addToast, onSchedule
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2">
             {/* Start Time */}
             <div className="space-y-2">
-              <label className="block text-xs font-semibold text-slate-300">
-                Scheduled Start Time
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="block text-xs font-semibold text-slate-300">
+                  Scheduled Start Time
+                </label>
+                <div className="flex items-center space-x-1">
+                  <button
+                    type="button"
+                    onClick={() => setScheduledAtLocal(formatDateTimeLocal(new Date(Date.now() + 15 * 1000)))}
+                    className="text-[10px] bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 px-1.5 py-0.5 rounded cursor-pointer transition"
+                    title="Send in 15 seconds"
+                  >
+                    +15s
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduledAtLocal(formatDateTimeLocal(new Date(Date.now() + 60 * 1000)))}
+                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded cursor-pointer transition"
+                    title="Send in 1 minute"
+                  >
+                    +1m
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setScheduledAtLocal(formatDateTimeLocal(new Date(Date.now() + 5 * 60 * 1000)))}
+                    className="text-[10px] bg-slate-800 hover:bg-slate-700 text-slate-300 px-1.5 py-0.5 rounded cursor-pointer transition"
+                    title="Send in 5 minutes"
+                  >
+                    +5m
+                  </button>
+                </div>
+              </div>
               <input
                 type="datetime-local"
+                step="1"
                 value={scheduledAtLocal}
                 onChange={(e) => setScheduledAtLocal(e.target.value)}
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 transition font-mono"
