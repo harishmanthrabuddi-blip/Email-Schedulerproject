@@ -265,9 +265,19 @@ export const SentEmails: React.FC<SentEmailsProps> = ({ onSentCountFetched, addT
                         : 'Delivered'}
                     </td>
                     <td className="py-4 px-4 sm:px-6 text-right font-sans">
-                      <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                        Sent
-                      </span>
+                      {email.status === 'failed' ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          Failed
+                        </span>
+                      ) : email.status === 'processing' ? (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                          Processing
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          Sent
+                        </span>
+                      )}
                     </td>
                   </tr>
                 ))}

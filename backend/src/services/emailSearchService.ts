@@ -128,7 +128,9 @@ export async function searchEmailsFromDatabase(params: SearchEmailsParams): Prom
     const queryParams: any[] = [userIdNum];
     let paramIndex = 2;
 
-    if (params.status) {
+    if (params.status === 'sent') {
+      query += ` AND (status = 'sent' OR sent_at IS NOT NULL)`;
+    } else if (params.status && params.status !== 'all') {
       query += ` AND status = $${paramIndex++}`;
       queryParams.push(params.status);
     }
