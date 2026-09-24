@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { SlackStatus, SlackChannel } from '../types';
 
 export const SlackSettings: React.FC = () => {
-  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const backendUrl = import.meta.env.VITE_API_URL || '';
 
   const [status, setStatus] = useState<SlackStatus>({ connected: false });
   const [channels, setChannels] = useState<SlackChannel[]>([]);

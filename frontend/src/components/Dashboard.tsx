@@ -26,7 +26,7 @@ interface SystemHealth {
 
 export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
   const navigate = useNavigate();
-  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const backendUrl = import.meta.env.VITE_API_URL || '';
 
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
   const [scheduledCount, setScheduledCount] = useState<number>(0);

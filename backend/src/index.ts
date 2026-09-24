@@ -97,8 +97,8 @@ app.use('/api/queue', queueRoutes);
 app.use('/api/rate-limit', rateLimitRoutes);
 app.use('/api/send-delay', sendDelayRoutes);
 
-// Root & Public Health Endpoints
-app.get('/', (req: Request, res: Response) => {
+// Public API Health & Status Endpoints
+app.get('/api/status', (req: Request, res: Response) => {
   res.json({
     message: 'Email Scheduler API is running smoothly 🚀',
     status: 'online',
@@ -183,7 +183,7 @@ app.get('/health/elasticsearch', async (req: Request, res: Response) => {
   }
 });
 
-// 6. Serve frontend build assets if present
+// 6. Serve React Frontend SPA static build
 const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
 const altFrontendDistPath = path.resolve(__dirname, '../frontend/dist');
 const finalFrontendPath = fs.existsSync(frontendDistPath)
@@ -193,12 +193,21 @@ const finalFrontendPath = fs.existsSync(frontendDistPath)
   : null;
 
 if (finalFrontendPath) {
+  console.log(`[Frontend] Serving React frontend from: ${finalFrontendPath}`);
   app.use(express.static(finalFrontendPath));
   app.get('*', (req: Request, res: Response, next) => {
     if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
       return next();
     }
     res.sendFile(path.join(finalFrontendPath, 'index.html'));
+  });
+} else {
+  app.get('/', (req: Request, res: Response) => {
+    res.json({
+      message: 'Email Scheduler API is running smoothly 🚀',
+      status: 'online',
+      version: '1.0.0',
+    });
   });
 }
 

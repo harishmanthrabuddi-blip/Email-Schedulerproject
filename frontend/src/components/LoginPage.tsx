@@ -5,7 +5,7 @@ interface LoginPageProps {
 }
 
 export const LoginPage: React.FC<LoginPageProps> = ({ errorMessage }) => {
-  const backendUrl = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+  const backendUrl = import.meta.env.VITE_API_URL || '';
 
   const handleGoogleLogin = () => {
     window.location.href = `${backendUrl}/api/auth/google`;
