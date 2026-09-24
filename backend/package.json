@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "node --max-old-space-size=450 ./node_modules/typescript/bin/tsc",
+    "prestart": "npm run build",
     "start": "node dist/index.js",
     "worker": "tsx src/workers/emailWorker.ts",
     "queue:test": "tsx src/queues/testEmailJob.ts"
