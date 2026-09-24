@@ -3,6 +3,7 @@ import * as emailRepository from '../repositories/emailRepository';
 import * as senderRepository from '../repositories/senderRepository';
 import { emailQueue } from '../queues/emailQueue';
 import * as emailSearchService from '../services/emailSearchService';
+import { sendEmail } from '../services/emailService';
 import { requireAuth } from '../middleware/authMiddleware';
 
 const router = Router();
@@ -260,6 +261,79 @@ router.get('/:id', async (req: Request, res: Response): Promise<void> => {
     res.status(200).json({ email });
   } catch (error) {
     console.error(`Error in GET /api/emails/:id:`, error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// POST /api/emails/:id/send-now - Instantly dispatch any scheduled email
+router.post('/:id/send-now', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const userId = (req.user as any).id;
+    const rawId = req.params.id;
+    const idStr = Array.isArray(rawId) ? rawId[0] : String(rawId);
+    const id = parseInt(idStr, 10);
+
+    if (isNaN(id)) {
+      res.status(400).json({ error: 'Invalid email ID' });
+      return;
+    }
+
+    const email = await emailRepository.findEmailById(id);
+    if (!email || email.user_id !== userId) {
+      res.status(404).json({ error: 'Email not found' });
+      return;
+    }
+
+    // Resolve sender info if exists
+    let fromHeader: string | undefined = undefined;
+    if (email.sender_id) {
+      const sender = await senderRepository.getSenderByIdUnchecked(email.sender_id);
+      if (sender) {
+        fromHeader = sender.name ? `"${sender.name}" <${sender.email}>` : sender.email;
+      }
+    }
+
+    // Mark as processing
+    await emailRepository.markAsProcessing(email.id);
+    await emailSearchService.updateEmailStatusInIndex(email.id, 'processing');
+
+    try {
+      const sendResult = await sendEmail({
+        from: fromHeader,
+        recipient: email.recipient,
+        subject: email.subject,
+        body: email.body,
+      });
+
+      // Mark as sent
+      await emailRepository.markAsSent(email.id);
+      await emailSearchService.updateEmailStatusInIndex(email.id, 'sent', new Date());
+
+      // Attempt to clean up BullMQ job if present
+      if (email.queue_job_id) {
+        try {
+          const job = await emailQueue.getJob(email.queue_job_id);
+          if (job) {
+            await job.remove();
+          }
+        } catch (jobErr) {
+          // ignore cleanup error
+        }
+      }
+
+      res.status(200).json({
+        message: 'Email dispatched immediately and sent successfully!',
+        emailId: email.id,
+        previewUrl: sendResult.previewUrl,
+      });
+    } catch (sendErr: any) {
+      console.error(`Failed immediate send for email ${email.id}:`, sendErr);
+      await emailRepository.markAsFailed(email.id);
+      await emailSearchService.updateEmailStatusInIndex(email.id, 'failed');
+      res.status(500).json({ error: sendErr.message || 'Failed to dispatch email' });
+    }
+  } catch (error) {
+    console.error('Error in POST /api/emails/:id/send-now:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 });

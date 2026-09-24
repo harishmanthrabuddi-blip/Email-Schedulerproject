@@ -192,6 +192,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
                 {/* Scheduled Email Queue Preview */}
                 <ScheduledEmails
                   onEmailsFetched={(emails) => setScheduledCount(emails.length)}
+                  addToast={addToast}
                 />
 
                 {/* Sender Accounts Management Card */}
@@ -209,6 +210,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ user, onLogout }) => {
             element={
               <ScheduledEmails
                 onEmailsFetched={(emails) => setScheduledCount(emails.length)}
+                addToast={addToast}
               />
             }
           />

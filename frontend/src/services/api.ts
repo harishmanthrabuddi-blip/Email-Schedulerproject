@@ -87,6 +87,12 @@ export const api = {
     });
   },
 
+  sendEmailNow: async (id: number): Promise<{ message: string; emailId: number; previewUrl?: string }> => {
+    return request<{ message: string; emailId: number; previewUrl?: string }>(`/api/emails/${id}/send-now`, {
+      method: 'POST',
+    });
+  },
+
   searchEmails: async (params: {
     status?: string;
     q?: string;

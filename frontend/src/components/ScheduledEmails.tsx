@@ -7,12 +7,14 @@ import { EmptyState } from './EmptyState';
 
 interface ScheduledEmailsProps {
   onEmailsFetched?: (emails: EmailRecord[]) => void;
+  addToast?: (type: 'success' | 'warning' | 'error', text: string) => void;
 }
 
-export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetched }) => {
+export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetched, addToast }) => {
   const navigate = useNavigate();
   const [emails, setEmails] = useState<EmailRecord[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
+  const [sendingId, setSendingId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const fetchScheduled = useCallback(async () => {
@@ -39,6 +41,23 @@ export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetche
     }, 5000);
     return () => clearInterval(interval);
   }, [fetchScheduled]);
+
+  const handleSendNow = async (id: number) => {
+    setSendingId(id);
+    try {
+      const res = await api.sendEmailNow(id);
+      if (addToast) {
+        addToast('success', res.message || 'Email sent successfully!');
+      }
+      fetchScheduled();
+    } catch (err: any) {
+      if (addToast) {
+        addToast('error', err.message || 'Failed to send email now');
+      }
+    } finally {
+      setSendingId(null);
+    }
+  };
 
   const renderStatusBadge = (status: string) => {
     switch (status) {
@@ -137,8 +156,8 @@ export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetche
                   <th className="py-3.5 px-4 sm:px-6">Recipient</th>
                   <th className="py-3.5 px-4 sm:px-6">Subject</th>
                   <th className="py-3.5 px-4 sm:px-6">Scheduled Time</th>
-                  <th className="py-3.5 px-4 sm:px-6">Job ID</th>
-                  <th className="py-3.5 px-4 sm:px-6 text-right">Status</th>
+                  <th className="py-3.5 px-4 sm:px-6">Status</th>
+                  <th className="py-3.5 px-4 sm:px-6 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 font-mono text-xs">
@@ -153,11 +172,30 @@ export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetche
                     <td className="py-4 px-4 sm:px-6 text-slate-400">
                       {new Date(email.scheduledAt).toLocaleString()}
                     </td>
-                    <td className="py-4 px-4 sm:px-6 text-slate-500">
-                      {email.queueJobId || `email-${email.id}`}
+                    <td className="py-4 px-4 sm:px-6 font-sans">
+                      {renderStatusBadge(email.status)}
                     </td>
                     <td className="py-4 px-4 sm:px-6 text-right font-sans">
-                      {renderStatusBadge(email.status)}
+                      <button
+                        onClick={() => handleSendNow(email.id)}
+                        disabled={sendingId === email.id}
+                        className="bg-indigo-600/80 hover:bg-indigo-600 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5 rounded-lg border border-indigo-500/30 transition cursor-pointer inline-flex items-center space-x-1"
+                        title="Dispatch email immediately"
+                      >
+                        {sendingId === email.id ? (
+                          <>
+                            <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                            </svg>
+                            <span>Sending...</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>⚡ Send Now</span>
+                          </>
+                        )}
+                      </button>
                     </td>
                   </tr>
                 ))}
