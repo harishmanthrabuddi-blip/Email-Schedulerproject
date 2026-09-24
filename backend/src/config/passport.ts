@@ -25,7 +25,7 @@ if (
         clientSecret: GOOGLE_CLIENT_SECRET,
         callbackURL: GOOGLE_CALLBACK_URL,
       },
-      async (_accessToken, _refreshToken, profile, done) => {
+      async (_accessToken: string, _refreshToken: string, profile: any, done: any) => {
         try {
           const googleId = profile.id;
           const email =
