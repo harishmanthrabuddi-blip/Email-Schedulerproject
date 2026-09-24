@@ -3,6 +3,8 @@ import cors from 'cors';
 import session from 'express-session';
 import { RedisStore } from 'connect-redis';
 import dotenv from 'dotenv';
+import path from 'path';
+import fs from 'fs';
 
 import pool from './config/database';
 import { initDatabase } from './config/initDatabase';
@@ -180,6 +182,25 @@ app.get('/health/elasticsearch', async (req: Request, res: Response) => {
     });
   }
 });
+
+// 6. Serve frontend build assets if present
+const frontendDistPath = path.resolve(__dirname, '../../frontend/dist');
+const altFrontendDistPath = path.resolve(__dirname, '../frontend/dist');
+const finalFrontendPath = fs.existsSync(frontendDistPath)
+  ? frontendDistPath
+  : fs.existsSync(altFrontendDistPath)
+  ? altFrontendDistPath
+  : null;
+
+if (finalFrontendPath) {
+  app.use(express.static(finalFrontendPath));
+  app.get('*', (req: Request, res: Response, next) => {
+    if (req.path.startsWith('/api') || req.path.startsWith('/health')) {
+      return next();
+    }
+    res.sendFile(path.join(finalFrontendPath, 'index.html'));
+  });
+}
 
 import { reconcileScheduledEmails } from './services/emailRecoveryService';
 import './workers/emailWorker';
