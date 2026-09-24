@@ -42,7 +42,7 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
 
     if (error) {
       console.error('Slack OAuth callback returned error:', error);
-      res.redirect(`${FRONTEND_URL}/?slack_error=${encodeURIComponent(error)}`);
+      res.redirect('/?slack_error=' + encodeURIComponent(error));
       return;
     }
 
@@ -81,10 +81,10 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
     });
 
     console.log(`Slack connection established for User #${userId} (Team: ${tokenResult.teamId})`);
-    res.redirect(`${FRONTEND_URL}/`);
+    res.redirect('/?slack_connected=true');
   } catch (err: any) {
     console.error('Error in GET /api/slack/callback:', err);
-    res.redirect(`${FRONTEND_URL}/?slack_error=${encodeURIComponent(err.message || 'Slack connect failed')}`);
+    res.redirect('/?slack_error=' + encodeURIComponent(err.message || 'Slack connect failed'));
   }
 });
 
