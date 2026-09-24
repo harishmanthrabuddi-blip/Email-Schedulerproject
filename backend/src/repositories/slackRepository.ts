@@ -1,4 +1,3 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import pool from '../config/database';
 
 export interface SlackConnectionRecord {
@@ -18,15 +17,27 @@ export interface UpsertSlackConnectionInput {
   channelId?: string | null;
 }
 
+function mapRowToSlackConnection(row: any): SlackConnectionRecord {
+  return {
+    id: Number(row.id),
+    user_id: Number(row.user_id),
+    team_id: row.team_id || null,
+    access_token: row.access_token,
+    channel_id: row.channel_id || null,
+    created_at: new Date(row.created_at),
+    updated_at: new Date(row.updated_at),
+  };
+}
+
 export async function getSlackConnectionByUserId(
   userId: number
 ): Promise<SlackConnectionRecord | null> {
-  const query = `SELECT * FROM slack_connections WHERE user_id = ?`;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [userId]);
-  if (rows.length === 0) {
+  const query = `SELECT * FROM slack_connections WHERE user_id = $1`;
+  const result = await pool.query(query, [userId]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return rows[0] as SlackConnectionRecord;
+  return mapRowToSlackConnection(result.rows[0]);
 }
 
 export async function upsertSlackConnection(
@@ -34,11 +45,12 @@ export async function upsertSlackConnection(
 ): Promise<SlackConnectionRecord> {
   const query = `
     INSERT INTO slack_connections (user_id, team_id, access_token, channel_id)
-    VALUES (?, ?, ?, ?)
-    ON DUPLICATE KEY UPDATE
-      team_id = VALUES(team_id),
-      access_token = VALUES(access_token),
-      channel_id = COALESCE(VALUES(channel_id), channel_id)
+    VALUES ($1, $2, $3, $4)
+    ON CONFLICT (user_id) DO UPDATE SET
+      team_id = EXCLUDED.team_id,
+      access_token = EXCLUDED.access_token,
+      channel_id = COALESCE(EXCLUDED.channel_id, slack_connections.channel_id)
+    RETURNING *
   `;
   const values = [
     input.userId,
@@ -47,30 +59,31 @@ export async function upsertSlackConnection(
     input.channelId || null,
   ];
 
-  await pool.query<ResultSetHeader>(query, values);
-
-  const connection = await getSlackConnectionByUserId(input.userId);
-  if (!connection) {
-    throw new Error(`Failed to retrieve slack connection for user ${input.userId}`);
+  const result = await pool.query(query, values);
+  if (result.rows.length === 0) {
+    throw new Error(`Failed to upsert slack connection for user ${input.userId}`);
   }
-  return connection;
+  return mapRowToSlackConnection(result.rows[0]);
 }
 
 export async function updateSlackChannel(
   userId: number,
   channelId: string
 ): Promise<SlackConnectionRecord> {
-  const query = `UPDATE slack_connections SET channel_id = ? WHERE user_id = ?`;
-  await pool.query(query, [channelId, userId]);
-
-  const connection = await getSlackConnectionByUserId(userId);
-  if (!connection) {
+  const query = `
+    UPDATE slack_connections 
+    SET channel_id = $1 
+    WHERE user_id = $2
+    RETURNING *
+  `;
+  const result = await pool.query(query, [channelId, userId]);
+  if (result.rows.length === 0) {
     throw new Error(`Slack connection not found for user ${userId}`);
   }
-  return connection;
+  return mapRowToSlackConnection(result.rows[0]);
 }
 
 export async function deleteSlackConnection(userId: number): Promise<void> {
-  const query = `DELETE FROM slack_connections WHERE user_id = ?`;
+  const query = `DELETE FROM slack_connections WHERE user_id = $1`;
   await pool.query(query, [userId]);
 }

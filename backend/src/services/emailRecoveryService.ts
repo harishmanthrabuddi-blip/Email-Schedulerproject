@@ -12,7 +12,7 @@ export async function reconcileScheduledEmails(): Promise<void> {
     }
 
     const pendingEmails = await emailRepository.getAllPendingScheduledEmails();
-    console.log(`[Recovery] Found ${pendingEmails.length} scheduled emails in MySQL`);
+    console.log(`[Recovery] Found ${pendingEmails.length} scheduled emails in PostgreSQL`);
 
     const now = Date.now();
 
@@ -39,7 +39,7 @@ export async function reconcileScheduledEmails(): Promise<void> {
           continue;
         }
 
-        // Remove stale/failed/completed job in Redis if MySQL email is still scheduled
+        // Remove stale/failed/completed job in Redis if PostgreSQL email is still scheduled
         try {
           await existingJob.remove();
         } catch (removeErr) {
@@ -73,7 +73,7 @@ export async function reconcileScheduledEmails(): Promise<void> {
         }
       );
 
-      // Update queue_job_id in MySQL
+      // Update queue_job_id in PostgreSQL
       await emailRepository.updateQueueJobId(email.id, jobId);
     }
   } catch (error: any) {

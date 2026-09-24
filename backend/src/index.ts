@@ -216,11 +216,11 @@ import './workers/emailWorker';
 
 async function startServer() {
   try {
-    console.log('Testing MySQL connection & initializing database schema...');
+    console.log('Testing PostgreSQL connection & initializing database schema...');
     await initDatabase();
   } catch (error: any) {
     console.warn('[Startup Warning] Database initialization not yet connected:', error?.message || error);
-    console.warn('[Startup Warning] Please configure DB_HOST, DB_USER, DB_PASSWORD in your environment variables.');
+    console.warn('[Startup Warning] Please configure DATABASE_URL in your environment variables.');
   }
 
   // Attempt Elasticsearch index initialization (gracefully handled if ES is down)

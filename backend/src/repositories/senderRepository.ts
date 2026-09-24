@@ -1,11 +1,10 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import pool from '../config/database';
 import { Sender } from '../types/sender';
 
 function mapRowToSender(row: any): Sender {
   return {
-    id: row.id,
-    userId: row.user_id,
+    id: Number(row.id),
+    userId: Number(row.user_id),
     email: row.email,
     name: row.name || null,
     createdAt: row.created_at ? new Date(row.created_at) : undefined,
@@ -16,45 +15,45 @@ function mapRowToSender(row: any): Sender {
 export async function getSendersByUserId(userId: number): Promise<Sender[]> {
   const query = `
     SELECT * FROM senders 
-    WHERE user_id = ? 
+    WHERE user_id = $1 
     ORDER BY id ASC
   `;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [userId]);
-  return rows.map(mapRowToSender);
+  const result = await pool.query(query, [userId]);
+  return result.rows.map(mapRowToSender);
 }
 
 export async function getSenderById(userId: number, senderId: number): Promise<Sender | null> {
   const query = `
     SELECT * FROM senders 
-    WHERE id = ? AND user_id = ?
+    WHERE id = $1 AND user_id = $2
   `;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [senderId, userId]);
-  if (rows.length === 0) {
+  const result = await pool.query(query, [senderId, userId]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return mapRowToSender(rows[0]);
+  return mapRowToSender(result.rows[0]);
 }
 
 export async function getSenderByIdUnchecked(senderId: number): Promise<Sender | null> {
-  const query = `SELECT * FROM senders WHERE id = ?`;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [senderId]);
-  if (rows.length === 0) {
+  const query = `SELECT * FROM senders WHERE id = $1`;
+  const result = await pool.query(query, [senderId]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return mapRowToSender(rows[0]);
+  return mapRowToSender(result.rows[0]);
 }
 
 export async function getSenderByEmailAndUserId(userId: number, email: string): Promise<Sender | null> {
   const normalizedEmail = email.trim().toLowerCase();
   const query = `
     SELECT * FROM senders 
-    WHERE user_id = ? AND LOWER(email) = ?
+    WHERE user_id = $1 AND LOWER(email) = $2
   `;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [userId, normalizedEmail]);
-  if (rows.length === 0) {
+  const result = await pool.query(query, [userId, normalizedEmail]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return mapRowToSender(rows[0]);
+  return mapRowToSender(result.rows[0]);
 }
 
 export async function createSender(userId: number, email: string, name?: string | null): Promise<Sender> {
@@ -63,14 +62,14 @@ export async function createSender(userId: number, email: string, name?: string 
 
   const query = `
     INSERT INTO senders (user_id, email, name) 
-    VALUES (?, ?, ?)
+    VALUES ($1, $2, $3)
+    RETURNING *
   `;
-  const [result] = await pool.query<ResultSetHeader>(query, [userId, normalizedEmail, trimmedName]);
-  const created = await getSenderById(userId, result.insertId);
-  if (!created) {
-    throw new Error(`Failed to retrieve created sender with ID ${result.insertId}`);
+  const result = await pool.query(query, [userId, normalizedEmail, trimmedName]);
+  if (result.rows.length === 0) {
+    throw new Error('Failed to create sender');
   }
-  return created;
+  return mapRowToSender(result.rows[0]);
 }
 
 export async function updateSender(
@@ -82,25 +81,24 @@ export async function updateSender(
   const normalizedEmail = email.trim().toLowerCase();
   const trimmedName = name && name.trim().length > 0 ? name.trim() : null;
 
-  const existing = await getSenderById(userId, senderId);
-  if (!existing) {
-    return null;
-  }
-
   const query = `
     UPDATE senders 
-    SET email = ?, name = ? 
-    WHERE id = ? AND user_id = ?
+    SET email = $1, name = $2 
+    WHERE id = $3 AND user_id = $4
+    RETURNING *
   `;
-  await pool.query(query, [normalizedEmail, trimmedName, senderId, userId]);
-  return getSenderById(userId, senderId);
+  const result = await pool.query(query, [normalizedEmail, trimmedName, senderId, userId]);
+  if (result.rows.length === 0) {
+    return null;
+  }
+  return mapRowToSender(result.rows[0]);
 }
 
 export async function deleteSender(userId: number, senderId: number): Promise<boolean> {
   const query = `
     DELETE FROM senders 
-    WHERE id = ? AND user_id = ?
+    WHERE id = $1 AND user_id = $2
   `;
-  const [result] = await pool.query<ResultSetHeader>(query, [senderId, userId]);
-  return result.affectedRows > 0;
+  const result = await pool.query(query, [senderId, userId]);
+  return (result.rowCount ?? 0) > 0;
 }

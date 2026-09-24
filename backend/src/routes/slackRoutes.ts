@@ -73,7 +73,7 @@ router.get('/callback', async (req: Request, res: Response): Promise<void> => {
     // Exchange authorization code for access token
     const tokenResult = await exchangeSlackCode(code);
 
-    // Save Slack connection in MySQL
+    // Save Slack connection in PostgreSQL
     await slackRepository.upsertSlackConnection({
       userId,
       teamId: tokenResult.teamId,

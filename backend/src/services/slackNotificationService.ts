@@ -20,7 +20,7 @@ export async function notifyRateLimitReached(
       return;
     }
 
-    // 3. Fetch user's Slack connection from MySQL
+    // 3. Fetch user's Slack connection from PostgreSQL
     const connection = await slackRepository.getSlackConnectionByUserId(userId);
     if (!connection || !connection.access_token || !connection.channel_id) {
       console.log(

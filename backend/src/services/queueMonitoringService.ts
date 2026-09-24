@@ -121,7 +121,7 @@ export async function getUserJobDetails(userId: number, jobId: string): Promise<
     return null;
   }
 
-  // Verify email ownership in MySQL
+  // Verify email ownership in PostgreSQL
   const emailRecord = await emailRepository.findEmailById(emailId);
   if (!emailRecord || emailRecord.user_id !== userId) {
     // Return null (404) if job belongs to another user

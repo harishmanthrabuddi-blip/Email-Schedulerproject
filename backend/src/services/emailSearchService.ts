@@ -1,4 +1,3 @@
-import { RowDataPacket } from 'mysql2';
 import pool from '../config/database';
 import { esClient, ELASTICSEARCH_INDEX } from '../config/elasticsearch';
 import { EmailRecord } from '../types/email';
@@ -126,24 +125,26 @@ export async function searchEmails(params: SearchEmailsParams): Promise<SearchEm
   const reachable = await isElasticsearchReachable();
   if (!reachable) {
     try {
-      let query = `SELECT * FROM emails WHERE user_id = ?`;
+      let query = `SELECT * FROM emails WHERE user_id = $1`;
       const queryParams: any[] = [params.userId];
+      let paramIndex = 2;
 
       if (params.status) {
-        query += ` AND status = ?`;
+        query += ` AND status = $${paramIndex++}`;
         queryParams.push(params.status);
       }
 
       if (params.q && params.q.trim().length > 0) {
-        query += ` AND (subject LIKE ? OR recipient LIKE ? OR body LIKE ?)`;
         const term = `%${params.q.trim()}%`;
+        query += ` AND (subject ILIKE $${paramIndex} OR recipient ILIKE $${paramIndex + 1} OR body ILIKE $${paramIndex + 2})`;
         queryParams.push(term, term, term);
+        paramIndex += 3;
       }
 
       query += ` ORDER BY scheduled_at DESC`;
 
-      const [rows] = await pool.query<RowDataPacket[]>(query, queryParams);
-      const mapped = (rows as any[]).map(mapEmailToDoc);
+      const result = await pool.query(query, queryParams);
+      const mapped = result.rows.map(mapEmailToDoc);
 
       const page = Math.max(1, params.page || 1);
       const limit = Math.min(100, Math.max(1, params.limit || 20));
@@ -159,8 +160,8 @@ export async function searchEmails(params: SearchEmailsParams): Promise<SearchEm
         totalPages,
         data: paginated,
       };
-    } catch (mysqlErr) {
-      console.error('MySQL search fallback failed:', mysqlErr);
+    } catch (dbErr) {
+      console.error('PostgreSQL search fallback failed:', dbErr);
       return {
         reachable: false,
         total: 0,

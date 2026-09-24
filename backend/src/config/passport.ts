@@ -80,7 +80,7 @@ passport.serializeUser((user: any, done) => {
   done(null, user.id);
 });
 
-// Passport deserialization: fetch user record from MySQL database
+// Passport deserialization: fetch user record from PostgreSQL database
 passport.deserializeUser(async (id: number, done) => {
   try {
     const user = await userRepository.findUserById(id);

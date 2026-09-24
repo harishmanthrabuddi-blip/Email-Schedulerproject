@@ -1,4 +1,3 @@
-import { ResultSetHeader, RowDataPacket } from 'mysql2';
 import pool from '../config/database';
 
 export interface UserRecord {
@@ -19,36 +18,37 @@ export interface CreateUserInput {
 }
 
 export async function findUserById(id: number): Promise<UserRecord | null> {
-  const query = `SELECT * FROM users WHERE id = ?`;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [id]);
-  if (rows.length === 0) {
+  const query = `SELECT * FROM users WHERE id = $1`;
+  const result = await pool.query(query, [id]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return rows[0] as UserRecord;
+  return result.rows[0] as UserRecord;
 }
 
 export async function findUserByGoogleId(googleId: string): Promise<UserRecord | null> {
-  const query = `SELECT * FROM users WHERE google_id = ?`;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [googleId]);
-  if (rows.length === 0) {
+  const query = `SELECT * FROM users WHERE google_id = $1`;
+  const result = await pool.query(query, [googleId]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return rows[0] as UserRecord;
+  return result.rows[0] as UserRecord;
 }
 
 export async function findUserByEmail(email: string): Promise<UserRecord | null> {
-  const query = `SELECT * FROM users WHERE email = ?`;
-  const [rows] = await pool.query<RowDataPacket[]>(query, [email]);
-  if (rows.length === 0) {
+  const query = `SELECT * FROM users WHERE email = $1`;
+  const result = await pool.query(query, [email]);
+  if (result.rows.length === 0) {
     return null;
   }
-  return rows[0] as UserRecord;
+  return result.rows[0] as UserRecord;
 }
 
 export async function createUser(input: CreateUserInput): Promise<UserRecord> {
   const query = `
     INSERT INTO users (google_id, name, email, avatar)
-    VALUES (?, ?, ?, ?)
+    VALUES ($1, $2, $3, $4)
+    RETURNING *
   `;
   const values = [
     input.googleId || null,
@@ -57,12 +57,11 @@ export async function createUser(input: CreateUserInput): Promise<UserRecord> {
     input.avatar || null,
   ];
 
-  const [result] = await pool.query<ResultSetHeader>(query, values);
-  const createdUser = await findUserById(result.insertId);
-  if (!createdUser) {
-    throw new Error(`Failed to retrieve created user with ID ${result.insertId}`);
+  const result = await pool.query(query, values);
+  if (result.rows.length === 0) {
+    throw new Error('Failed to create user');
   }
-  return createdUser;
+  return result.rows[0] as UserRecord;
 }
 
 export async function updateUserGoogleId(
@@ -72,13 +71,13 @@ export async function updateUserGoogleId(
 ): Promise<UserRecord> {
   const query = `
     UPDATE users 
-    SET google_id = ?, avatar = COALESCE(?, avatar)
-    WHERE id = ?
+    SET google_id = $1, avatar = COALESCE($2, avatar)
+    WHERE id = $3
+    RETURNING *
   `;
-  await pool.query(query, [googleId, avatar || null, id]);
-  const updatedUser = await findUserById(id);
-  if (!updatedUser) {
+  const result = await pool.query(query, [googleId, avatar || null, id]);
+  if (result.rows.length === 0) {
     throw new Error(`Failed to retrieve updated user with ID ${id}`);
   }
-  return updatedUser;
+  return result.rows[0] as UserRecord;
 }

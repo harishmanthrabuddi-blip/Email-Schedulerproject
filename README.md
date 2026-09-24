@@ -1,6 +1,6 @@
 # Email Scheduler Application — Production System
 
-A production-grade, distributed automated Email Scheduling platform built with **TypeScript**, **Express.js**, **MySQL**, **Redis**, **BullMQ**, **Nodemailer (Ethereal SMTP)**, **Elasticsearch**, **Google OAuth 2.0**, **Slack OAuth 2.0**, and **React (Vite)**.
+A production-grade, distributed automated Email Scheduling platform built with **TypeScript**, **Express.js**, **PostgreSQL**, **Redis**, **BullMQ**, **Nodemailer (Ethereal SMTP)**, **Elasticsearch**, **Google OAuth 2.0**, **Slack OAuth 2.0**, and **React (Vite)**.
 
 ---
 
@@ -16,11 +16,11 @@ flowchart TD
     end
 
     subgraph Persistence & Queueing
-        Express -->|Save Email Record| MySQL[("MySQL Database (Source of Truth)")]
+        Express -->|Save Email Record| PostgreSQL[("PostgreSQL Database (Source of Truth)")]
         Express -->|Add Delayed Job| BullMQ["BullMQ Queue (email-scheduler)"]
         BullMQ <-->|Queue Storage| RedisQueue[("Redis Store")]
         Express -->|Startup Reconciliation| Recovery["Recovery Service (emailRecoveryService.ts)"]
-        Recovery <-->|Query Scheduled Emails| MySQL
+        Recovery <-->|Query Scheduled Emails| PostgreSQL
         Recovery <-->|Re-enqueue Missing Jobs| BullMQ
     end
 
@@ -29,7 +29,7 @@ flowchart TD
         Worker -->|Atomic Slot Check| RateLimit["Redis Hourly Rate Limiter"]
         Worker -->|Atomic Delay Reservation| SendDelay["Redis Minimum Send Delay"]
         Worker -->|SMTP Delivery| Ethereal["Ethereal Email SMTP"]
-        Worker -->|Update Status & Sent At| MySQL
+        Worker -->|Update Status & Sent At| PostgreSQL
         Worker -->|Index Document| ES[("Elasticsearch Search Index")]
     end
 
@@ -48,15 +48,15 @@ flowchart TD
 
 #### A. How Email Scheduling Works
 1. **User Scheduling Request**: The user submits a scheduled email via the React frontend or `POST /api/emails/schedule`.
-2. **Database Record Creation**: An email record is created in MySQL with `status = 'scheduled'`, saving the recipient, subject, body, sender identity, and `scheduled_at` timestamp. Idempotency is enforced using a unique `idempotency_key`.
+2. **Database Record Creation**: An email record is created in PostgreSQL with `status = 'scheduled'`, saving the recipient, subject, body, sender identity, and `scheduled_at` timestamp. Idempotency is enforced using a unique `idempotency_key`.
 3. **BullMQ Delayed Enqueueing**: A BullMQ delayed job is created with a deterministic job ID (`email-${emailId}`) and a calculated delay `delay = Math.max(0, scheduledAt - Date.now())`.
-4. **Database Cross-Reference**: The generated BullMQ job ID is saved in MySQL `queue_job_id`.
+4. **Database Cross-Reference**: The generated BullMQ job ID is saved in PostgreSQL `queue_job_id`.
 
 #### B. How Persistence & Recovery on Server Restart is Handled
-1. **Source of Truth**: The MySQL database serves as the absolute source of truth for all scheduled emails.
+1. **Source of Truth**: The PostgreSQL database serves as the absolute source of truth for all scheduled emails.
 2. **Startup Reconciliation Service (`emailRecoveryService.ts`)**:
    - On backend application or worker startup, the recovery service runs **before** worker processing begins.
-   - It queries MySQL for all emails where `status = 'scheduled'` (and resets any emails stuck in `processing` due to an unexpected crash back to `scheduled`).
+   - It queries PostgreSQL for all emails where `status = 'scheduled'` (and resets any emails stuck in `processing` due to an unexpected crash back to `scheduled`).
    - For every pending email:
      - It checks whether its corresponding BullMQ job exists in Redis (`emailQueue.getJob('email-' + email.id)`).
      - **Job Exists**: If the job is active, waiting, or delayed in BullMQ, recovery skips it (preventing duplicate enqueuing).
