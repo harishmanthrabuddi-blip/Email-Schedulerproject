@@ -12,6 +12,8 @@ export const redisOptions: ConnectionOptions = redisUrl
   ? {
       url: redisUrl,
       maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
     }
   : {
       host: process.env.REDIS_HOST || '127.0.0.1',
@@ -19,11 +21,14 @@ export const redisOptions: ConnectionOptions = redisUrl
       password: redisPassword,
       tls: useTls ? { rejectUnauthorized: false } : undefined,
       maxRetriesPerRequest: null,
+      enableReadyCheck: false,
     };
 
 export const redisClient = redisUrl
   ? new Redis(redisUrl, {
       maxRetriesPerRequest: null,
+      enableReadyCheck: false,
+      tls: redisUrl.startsWith('rediss://') ? { rejectUnauthorized: false } : undefined,
       lazyConnect: true,
     })
   : new Redis({
@@ -32,6 +37,7 @@ export const redisClient = redisUrl
       password: redisPassword,
       tls: useTls ? { rejectUnauthorized: false } : undefined,
       maxRetriesPerRequest: null,
+      enableReadyCheck: false,
       lazyConnect: true,
     });
 

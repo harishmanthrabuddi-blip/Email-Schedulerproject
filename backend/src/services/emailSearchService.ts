@@ -121,56 +121,61 @@ export async function updateEmailStatusInIndex(
   }
 }
 
+export async function searchEmailsFromDatabase(params: SearchEmailsParams): Promise<SearchEmailsResult> {
+  try {
+    const userIdNum = Number(params.userId);
+    let query = `SELECT * FROM emails WHERE user_id = $1`;
+    const queryParams: any[] = [userIdNum];
+    let paramIndex = 2;
+
+    if (params.status) {
+      query += ` AND status = $${paramIndex++}`;
+      queryParams.push(params.status);
+    }
+
+    if (params.q && params.q.trim().length > 0) {
+      const term = `%${params.q.trim()}%`;
+      query += ` AND (subject ILIKE $${paramIndex} OR recipient ILIKE $${paramIndex + 1} OR body ILIKE $${paramIndex + 2})`;
+      queryParams.push(term, term, term);
+      paramIndex += 3;
+    }
+
+    query += ` ORDER BY COALESCE(sent_at, scheduled_at, created_at) DESC`;
+
+    const result = await pool.query(query, queryParams);
+    const mapped = result.rows.map(mapEmailToDoc);
+
+    const page = Math.max(1, params.page || 1);
+    const limit = Math.min(100, Math.max(1, params.limit || 20));
+    const total = mapped.length;
+    const paginated = mapped.slice((page - 1) * limit, page * limit);
+    const totalPages = Math.ceil(total / limit) || 1;
+
+    return {
+      reachable: false,
+      total,
+      page,
+      limit,
+      totalPages,
+      data: paginated,
+    };
+  } catch (dbErr) {
+    console.error('PostgreSQL search fallback failed:', dbErr);
+    return {
+      reachable: false,
+      total: 0,
+      page: params.page || 1,
+      limit: params.limit || 20,
+      totalPages: 0,
+      data: [],
+    };
+  }
+}
+
 export async function searchEmails(params: SearchEmailsParams): Promise<SearchEmailsResult> {
   const reachable = await isElasticsearchReachable();
   if (!reachable) {
-    try {
-      let query = `SELECT * FROM emails WHERE user_id = $1`;
-      const queryParams: any[] = [params.userId];
-      let paramIndex = 2;
-
-      if (params.status) {
-        query += ` AND status = $${paramIndex++}`;
-        queryParams.push(params.status);
-      }
-
-      if (params.q && params.q.trim().length > 0) {
-        const term = `%${params.q.trim()}%`;
-        query += ` AND (subject ILIKE $${paramIndex} OR recipient ILIKE $${paramIndex + 1} OR body ILIKE $${paramIndex + 2})`;
-        queryParams.push(term, term, term);
-        paramIndex += 3;
-      }
-
-      query += ` ORDER BY scheduled_at DESC`;
-
-      const result = await pool.query(query, queryParams);
-      const mapped = result.rows.map(mapEmailToDoc);
-
-      const page = Math.max(1, params.page || 1);
-      const limit = Math.min(100, Math.max(1, params.limit || 20));
-      const total = mapped.length;
-      const paginated = mapped.slice((page - 1) * limit, page * limit);
-      const totalPages = Math.ceil(total / limit) || 1;
-
-      return {
-        reachable: false,
-        total,
-        page,
-        limit,
-        totalPages,
-        data: paginated,
-      };
-    } catch (dbErr) {
-      console.error('PostgreSQL search fallback failed:', dbErr);
-      return {
-        reachable: false,
-        total: 0,
-        page: params.page || 1,
-        limit: params.limit || 20,
-        totalPages: 0,
-        data: [],
-      };
-    }
+    return searchEmailsFromDatabase(params);
   }
 
   const page = Math.max(1, params.page || 1);
@@ -178,7 +183,7 @@ export async function searchEmails(params: SearchEmailsParams): Promise<SearchEm
   const from = (page - 1) * limit;
 
   const mustClauses: any[] = [
-    { term: { userId: params.userId } },
+    { term: { userId: Number(params.userId) } },
   ];
 
   if (params.status) {
@@ -195,35 +200,49 @@ export async function searchEmails(params: SearchEmailsParams): Promise<SearchEm
     });
   }
 
-  const searchResponse = await esClient.search({
-    index: ELASTICSEARCH_INDEX,
-    from,
-    size: limit,
-    query: {
-      bool: {
-        must: mustClauses,
+  try {
+    const searchResponse = await esClient.search({
+      index: ELASTICSEARCH_INDEX,
+      from,
+      size: limit,
+      query: {
+        bool: {
+          must: mustClauses,
+        },
       },
-    },
-    sort: [
-      { scheduledAt: { order: 'desc' } },
-    ],
-  });
+      sort: [
+        { scheduledAt: { order: 'desc' } },
+      ],
+    });
 
-  const totalHits = typeof searchResponse.hits.total === 'number'
-    ? searchResponse.hits.total
-    : searchResponse.hits.total?.value || 0;
+    const totalHits = typeof searchResponse.hits.total === 'number'
+      ? searchResponse.hits.total
+      : searchResponse.hits.total?.value || 0;
 
-  const data = searchResponse.hits.hits.map((hit) => hit._source);
-  const totalPages = Math.ceil(totalHits / limit);
+    const data = searchResponse.hits.hits.map((hit) => hit._source);
+    
+    // If Elasticsearch returned 0 hits, cross-verify with PostgreSQL database
+    if (data.length === 0) {
+      const dbResult = await searchEmailsFromDatabase(params);
+      if (dbResult.total > 0) {
+        return dbResult;
+      }
+    }
 
-  return {
-    reachable: true,
-    total: totalHits,
-    page,
-    limit,
-    totalPages,
-    data,
-  };
+    const totalPages = Math.ceil(totalHits / limit) || 1;
+
+    return {
+      reachable: true,
+      total: totalHits,
+      page,
+      limit,
+      totalPages,
+      data,
+    };
+  } catch (esSearchError) {
+    console.warn('[Elasticsearch] Search query failed, falling back to PostgreSQL:', esSearchError);
+    return searchEmailsFromDatabase(params);
+  }
 }
 
 export async function reindexAllUserEmails(userId: number): Promise<{ reachable: boolean; indexedCount: number }> {
