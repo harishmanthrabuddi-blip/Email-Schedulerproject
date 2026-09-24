@@ -4,7 +4,7 @@
   "private": true,
   "description": "Root package for Email Scheduler monorepo",
   "scripts": {
-    "build": "cd backend && npm install && npm run build",
+    "build": "cd backend && npm install --include=dev && npm run build",
     "start": "cd backend && npm start"
   }
 }
