@@ -170,20 +170,28 @@ async function startServer() {
   try {
     console.log('Testing MySQL connection & initializing database schema...');
     await initDatabase();
-
-    // Attempt Elasticsearch index initialization (gracefully handled if ES is down)
-    await initializeEmailIndex();
-
-    // Run scheduled email recovery/reconciliation before server starts accepting requests
-    await reconcileScheduledEmails();
-
-    app.listen(PORT, () => {
-      console.log(`Backend server running on http://localhost:${PORT}`);
-    });
-  } catch (error) {
-    console.error('Failed to start server due to database initialization failure:', error);
-    process.exit(1);
+  } catch (error: any) {
+    console.warn('[Startup Warning] Database initialization not yet connected:', error?.message || error);
+    console.warn('[Startup Warning] Please configure DB_HOST, DB_USER, DB_PASSWORD in your environment variables.');
   }
+
+  // Attempt Elasticsearch index initialization (gracefully handled if ES is down)
+  try {
+    await initializeEmailIndex();
+  } catch (esError) {
+    // Graceful fallback
+  }
+
+  // Run scheduled email recovery/reconciliation if DB & Redis are reachable
+  try {
+    await reconcileScheduledEmails();
+  } catch (recError: any) {
+    console.warn('[Startup Warning] Scheduled email reconciliation skipped:', recError?.message || recError);
+  }
+
+  app.listen(PORT, () => {
+    console.log(`Backend server running on http://localhost:${PORT}`);
+  });
 }
 
 startServer();
