@@ -34,6 +34,10 @@ export const ScheduledEmails: React.FC<ScheduledEmailsProps> = ({ onEmailsFetche
 
   useEffect(() => {
     fetchScheduled();
+    const interval = setInterval(() => {
+      fetchScheduled();
+    }, 5000);
+    return () => clearInterval(interval);
   }, [fetchScheduled]);
 
   const renderStatusBadge = (status: string) => {

@@ -54,6 +54,11 @@ export const SentEmails: React.FC<SentEmailsProps> = ({ onSentCountFetched, addT
 
   useEffect(() => {
     fetchSentEmails(page, activeQuery);
+    // Auto-refresh every 5 seconds so newly sent emails appear automatically
+    const interval = setInterval(() => {
+      fetchSentEmails(page, activeQuery);
+    }, 5000);
+    return () => clearInterval(interval);
   }, [fetchSentEmails, page, activeQuery]);
 
   const handleSearchSubmit = (e: FormEvent) => {
@@ -99,40 +104,64 @@ export const SentEmails: React.FC<SentEmailsProps> = ({ onSentCountFetched, addT
         <div>
           <h2 className="text-xl font-bold text-white tracking-tight">Sent Email History</h2>
           <p className="text-sm text-slate-400 mt-0.5">
-            Full-text Elasticsearch indexing of delivered emails and recipient logs.
+            Full-text Elasticsearch indexing & PostgreSQL delivered email logs.
           </p>
         </div>
 
-        <button
-          onClick={handleReindex}
-          disabled={isReindexing}
-          className="self-start sm:self-auto bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3.5 rounded-xl border border-slate-700 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
-        >
-          <svg
-            className={`w-3.5 h-3.5 ${isReindexing ? 'animate-spin' : ''}`}
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => fetchSentEmails(page, activeQuery)}
+            disabled={isLoading}
+            className="self-start sm:self-auto bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3.5 rounded-xl border border-slate-700 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+            title="Refresh sent emails"
           >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              strokeWidth={2}
-              d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
-            />
-          </svg>
-          <span>{isReindexing ? 'Reindexing ES...' : 'Reindex Elasticsearch'}</span>
-        </button>
+            <svg
+              className={`w-3.5 h-3.5 ${isLoading ? 'animate-spin' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            <span>{isLoading ? 'Refreshing...' : 'Refresh'}</span>
+          </button>
+
+          <button
+            onClick={handleReindex}
+            disabled={isReindexing}
+            className="self-start sm:self-auto bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs font-semibold py-2 px-3.5 rounded-xl border border-slate-700 transition flex items-center space-x-1.5 cursor-pointer disabled:opacity-50"
+          >
+            <svg
+              className={`w-3.5 h-3.5 ${isReindexing ? 'animate-spin' : ''}`}
+              fill="none"
+              viewBox="0 0 24 24"
+              stroke="currentColor"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"
+              />
+            </svg>
+            <span>{isReindexing ? 'Reindexing ES...' : 'Reindex ES'}</span>
+          </button>
+        </div>
       </div>
 
       {!isEsReachable && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-xs text-amber-300 flex items-center justify-between">
+        <div className="bg-indigo-500/10 border border-indigo-500/20 rounded-xl px-4 py-3 text-xs text-indigo-300 flex items-center justify-between">
           <div className="flex items-center space-x-2">
-            <span className="font-bold text-amber-400">⚡ Elasticsearch Offline:</span>
-            <span>Displaying sent email history directly from MySQL database fallback.</span>
+            <span className="font-bold text-indigo-400">⚡ Database Direct Mode:</span>
+            <span>Displaying sent email history directly from PostgreSQL database.</span>
           </div>
-          <span className="text-[11px] text-amber-400/80 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/20 font-mono">
-            MySQL Mode
+          <span className="text-[11px] text-indigo-400/80 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/20 font-mono">
+            PostgreSQL Active
           </span>
         </div>
       )}
@@ -229,7 +258,11 @@ export const SentEmails: React.FC<SentEmailsProps> = ({ onSentCountFetched, addT
                       {email.subject}
                     </td>
                     <td className="py-4 px-4 sm:px-6 text-slate-400">
-                      {email.sentAt ? new Date(email.sentAt).toLocaleString() : 'N/A'}
+                      {email.sentAt || (email as any).sent_at
+                        ? new Date(email.sentAt || (email as any).sent_at).toLocaleString()
+                        : email.updatedAt || (email as any).updated_at
+                        ? new Date(email.updatedAt || (email as any).updated_at).toLocaleString()
+                        : 'Delivered'}
                     </td>
                     <td className="py-4 px-4 sm:px-6 text-right font-sans">
                       <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
